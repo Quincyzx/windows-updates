@@ -104,16 +104,19 @@ if not CreateTransactionAddr:raise Exception("CreateTransaction not found")
 CreateTransaction=ctypes.WINFUNCTYPE(wintypes.HANDLE,wintypes.LPVOID,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID)(CreateTransactionAddr)
 
 # Try W version first, fallback to A version
-CreateFileTransactedAddr=GetProcAddress(hKtm,b"CreateFileTransactedW")
-useWide=True
-if not CreateFileTransactedAddr:
-    CreateFileTransactedAddr=GetProcAddress(hKtm,b"CreateFileTransactedA")
-    useWide=False
-if not CreateFileTransactedAddr:raise Exception("CreateFileTransacted not found")
-if useWide:
-    CreateFileTransacted=ctypes.WINFUNCTYPE(wintypes.HANDLE,wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.HANDLE,wintypes.LPVOID,wintypes.LPVOID)(CreateFileTransactedAddr)
-else:
-    CreateFileTransacted=ctypes.WINFUNCTYPE(wintypes.HANDLE,wintypes.LPCSTR,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.HANDLE,wintypes.LPVOID,wintypes.LPVOID)(CreateFileTransactedAddr)
+# CreateFileTransactedW is in kernel32.dll, not ktmw32.dll!
+hKernel32=LoadLibraryA(b"kernel32.dll")
+CreateFileTransactedWAddr=GetProcAddress(hKernel32,b"CreateFileTransactedW")
+CreateFileTransactedAAddr=GetProcAddress(hKernel32,b"CreateFileTransactedA")
+USE_WIDE=False
+CreateFileTransacted=None
+if CreateFileTransactedWAddr:
+    CreateFileTransacted=ctypes.WINFUNCTYPE(wintypes.HANDLE,wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.HANDLE,wintypes.LPVOID,wintypes.LPVOID)(CreateFileTransactedWAddr)
+    USE_WIDE=True
+elif CreateFileTransactedAAddr:
+    CreateFileTransacted=ctypes.WINFUNCTYPE(wintypes.HANDLE,wintypes.LPCSTR,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.HANDLE,wintypes.LPVOID,wintypes.LPVOID)(CreateFileTransactedAAddr)
+    USE_WIDE=False
+if not CreateFileTransacted:raise Exception("CreateFileTransacted not found in kernel32.dll")
 
 RollbackTransactionAddr=GetProcAddress(hKtm,b"RollbackTransaction")
 if not RollbackTransactionAddr:raise Exception("RollbackTransaction not found")
